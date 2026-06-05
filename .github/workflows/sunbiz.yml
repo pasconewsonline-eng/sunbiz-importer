@@ -1,28 +1,18 @@
-.github/workflows/sunbiz.yml
 name: Sunbiz Daily Import
-
 on:
   schedule:
-    - cron: '0 11 * * *'
+    - cron: "0 11 * * *"
   workflow_dispatch:
-
 jobs:
   import:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run Sunbiz importer
-        env:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - env:
           WP_ENDPOINT: ${{ secrets.WP_ENDPOINT }}
           WP_KEY: ${{ secrets.WP_KEY }}
         run: python sunbiz_import.py
