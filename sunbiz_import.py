@@ -55,16 +55,22 @@ def main():
         try: return sftp.listdir(p)
         except Exception as e: print(f"  (could not list {p}: {e})"); return []
 
-    print("Listing /doc :")
-    for e in list_dir("/doc"): print("   ", e)
-    print("Listing /doc/cor :")
-    cor_files = list_dir("/doc/cor")
-    for e in cor_files: print("   ", e)
+    # Find the 'doc/cor' folder using RELATIVE paths (session lands in /Public).
+    # Try a few forms and use whichever returns files.
+    cor_path = None
+    for base in ["doc/cor", "./doc/cor", "Public/doc/cor", "/Public/doc/cor"]:
+        files = list_dir(base)
+        if files:
+            cor_path = base
+            print(f"Listing {base} :")
+            for e in files: print("   ", e)
+            break
 
+    cor_files = list_dir(cor_path) if cor_path else []
     dated = sorted([f for f in cor_files if re.match(r"^\d{8}[a-zA-Z]?\.txt$", f, re.I)])
     all_records = []
     if dated:
-        target = "/doc/cor/" + dated[-1]
+        target = cor_path.rstrip("/") + "/" + dated[-1]
         print(f"Using newest corporate data file: {target}")
         buf = io.BytesIO(); sftp.getfo(target, buf)
         text = buf.getvalue().decode("latin-1", errors="replace")
@@ -72,7 +78,11 @@ def main():
             rec = parse_corporate_line(line)
             if rec: all_records.append(rec)
     else:
-        print("No dated data files found in /doc/cor. Files present listed above.")
+        print("No dated data files found. Folder contents (if any) listed above.")
+        # extra discovery: show what's in the cor folder regardless
+        if not cor_path:
+            print("Could not find doc/cor. Listing landing directory:")
+            for e in list_dir("."): print("   ", e)
 
     sftp.close(); tr.close()
     print(f"Matched {len(all_records)} Pasco-area filings.")
