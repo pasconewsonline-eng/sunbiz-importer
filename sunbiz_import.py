@@ -10,9 +10,9 @@ SFTP_HOST, SFTP_USER, SFTP_PASS = "sftp.floridados.gov", "Public", "PubAccess184
 
 PASCO_CITIES = {
     "NEW PORT RICHEY","PORT RICHEY","HUDSON","LAND O LAKES","LAND O' LAKES",
-    "LAND O'LAKES","WESLEY CHAPEL","ZEPHYRHILLS","DADE CITY","TRINITY",
+    "LAND O'LAKES","WESLEY CHAPEL","ZEPHYRHILLS","ZEPHYRHILLS","DADE CITY","TRINITY",
     "HOLIDAY","LUTZ","ODESSA","SAN ANTONIO","SHADY HILLS","BAYONET POINT",
-    "ELFERS","ARIPEKA","CRYSTAL SPRINGS","SAINT LEO","ST LEO",
+    "ELFERS","ARIPEKA","CRYSTAL SPRINGS","SAINT LEO","ST LEO","ST. LEO",
 }
 TYPE_MAP = {
     "DOMP":"FL Corporation","DOMNP":"FL Non-Profit","FORP":"Foreign Corporation",
@@ -24,19 +24,25 @@ TYPE_MAP = {
 def field(line, start, length):
     return line[start-1:start-1+length].strip()
 
+def norm_city(c):
+    # normalize for matching: uppercase, drop periods, collapse spaces
+    return re.sub(r"\s+", " ", c.upper().replace(".", "")).strip()
+
+# build a normalized lookup set
+PASCO_NORM = { norm_city(c) for c in PASCO_CITIES }
+
 def parse_corporate_line(line):
     if len(line) < 480: return None
-    if field(line,205,1) != "A": return None
-    if field(line,333,2) != "FL": return None
-    city = field(line,305,28).upper()
-    if city not in PASCO_CITIES: return None
+    if field(line,205,1) != "A": return None      # active only
+    city_raw = field(line,305,28)
+    if norm_city(city_raw) not in PASCO_NORM: return None
     rd = field(line,473,8)
     fd = f"{rd[0:4]}-{rd[4:6]}-{rd[6:8]}" if (len(rd)==8 and rd.isdigit()) else ""
     code = field(line,206,15).strip()
     return {
         "doc_number": field(line,1,12), "name": field(line,13,192),
         "entity_type": TYPE_MAP.get(code, code or "Business Filing"),
-        "filing_date": fd, "city": field(line,305,28).title(), "county":"PASCO",
+        "filing_date": fd, "city": city_raw.title(), "county":"PASCO",
         "address": field(line,221,42).title(),
         "registered_agent": field(line,545,42).title(), "owner":"",
     }
@@ -50,7 +56,7 @@ def main():
 
     def list_dir(p):
         try: return sftp.listdir(p)
-        except Exception as e: return []
+        except Exception: return []
 
     cor_path = None
     for base in ["doc/cor", "./doc/cor", "Public/doc/cor", "/Public/doc/cor"]:
@@ -67,37 +73,14 @@ def main():
         text = buf.getvalue().decode("latin-1", errors="replace")
         lines = text.splitlines()
         print(f"Total records in file: {len(lines)}")
-
-        # DEBUG: show what the parser reads from the first 3 records,
-        # so we can confirm the field positions are correct.
-        print("---- DEBUG: first 3 records, key fields ----")
-        for ln in lines[:3]:
-            if len(ln) < 480: 
-                print(f"  (short line, len={len(ln)})"); continue
-            print(f"  NAME=[{field(ln,13,192)[:40]}] STATUS=[{field(ln,205,1)}] "
-                  f"CITY=[{field(ln,305,28)}] STATE=[{field(ln,333,2)}] "
-                  f"DATE=[{field(ln,473,8)}] TYPE=[{field(ln,206,15)}]")
-        print("---- counting cities across whole file ----")
-        from collections import Counter
-        city_counts = Counter()
-        fl_active = 0
-        for ln in lines:
-            if len(ln) < 480: continue
-            if field(ln,205,1)=="A" and field(ln,333,2)=="FL":
-                fl_active += 1
-                city_counts[field(ln,305,28).upper()] += 1
-        print(f"  Active FL filings in file: {fl_active}")
-        # show any city containing our target words
-        for c,n in city_counts.most_common():
-            if any(k.split()[0] in c for k in ["NEW PORT","PORT RICHEY","HUDSON","WESLEY","ZEPHYR","DADE","TRINITY","HOLIDAY","LUTZ","LAND O"]):
-                print(f"    MATCH-ish city: [{c}] x{n}")
-
         for line in lines:
             rec = parse_corporate_line(line)
             if rec: all_records.append(rec)
 
     sftp.close(); tr.close()
     print(f"Matched {len(all_records)} Pasco-area filings.")
+    for r in all_records[:10]:
+        print(f"   {r['name']} — {r['city']} — {r['entity_type']} — {r['filing_date']}")
     if not all_records:
         print("Nothing to send today."); return
     print("Posting to WordPress...")
