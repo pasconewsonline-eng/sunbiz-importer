@@ -1,8 +1,8 @@
 name: Sunbiz Daily Import
 on:
+  workflow_dispatch:
   schedule:
     - cron: "0 11 * * *"
-  workflow_dispatch:
 jobs:
   import:
     runs-on: ubuntu-latest
