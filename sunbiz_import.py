@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
 Sunbiz Daily New-Business Importer for Pasco County News
-Downloads the latest Florida Sunbiz daily corporate data file via SFTP,
-filters for Pasco-area cities, and posts new filings to WordPress.
-Runs on GitHub Actions (free cloud). No computer needed.
 """
 import os, sys, io, json, re, requests, paramiko
 
@@ -53,18 +50,12 @@ def main():
 
     def list_dir(p):
         try: return sftp.listdir(p)
-        except Exception as e: print(f"  (could not list {p}: {e})"); return []
+        except Exception as e: return []
 
-    # Find the 'doc/cor' folder using RELATIVE paths (session lands in /Public).
-    # Try a few forms and use whichever returns files.
     cor_path = None
     for base in ["doc/cor", "./doc/cor", "Public/doc/cor", "/Public/doc/cor"]:
-        files = list_dir(base)
-        if files:
-            cor_path = base
-            print(f"Listing {base} :")
-            for e in files: print("   ", e)
-            break
+        if list_dir(base):
+            cor_path = base; break
 
     cor_files = list_dir(cor_path) if cor_path else []
     dated = sorted([f for f in cor_files if re.match(r"^\d{8}[a-zA-Z]?\.txt$", f, re.I)])
@@ -74,15 +65,36 @@ def main():
         print(f"Using newest corporate data file: {target}")
         buf = io.BytesIO(); sftp.getfo(target, buf)
         text = buf.getvalue().decode("latin-1", errors="replace")
-        for line in text.splitlines():
+        lines = text.splitlines()
+        print(f"Total records in file: {len(lines)}")
+
+        # DEBUG: show what the parser reads from the first 3 records,
+        # so we can confirm the field positions are correct.
+        print("---- DEBUG: first 3 records, key fields ----")
+        for ln in lines[:3]:
+            if len(ln) < 480: 
+                print(f"  (short line, len={len(ln)})"); continue
+            print(f"  NAME=[{field(ln,13,192)[:40]}] STATUS=[{field(ln,205,1)}] "
+                  f"CITY=[{field(ln,305,28)}] STATE=[{field(ln,333,2)}] "
+                  f"DATE=[{field(ln,473,8)}] TYPE=[{field(ln,206,15)}]")
+        print("---- counting cities across whole file ----")
+        from collections import Counter
+        city_counts = Counter()
+        fl_active = 0
+        for ln in lines:
+            if len(ln) < 480: continue
+            if field(ln,205,1)=="A" and field(ln,333,2)=="FL":
+                fl_active += 1
+                city_counts[field(ln,305,28).upper()] += 1
+        print(f"  Active FL filings in file: {fl_active}")
+        # show any city containing our target words
+        for c,n in city_counts.most_common():
+            if any(k.split()[0] in c for k in ["NEW PORT","PORT RICHEY","HUDSON","WESLEY","ZEPHYR","DADE","TRINITY","HOLIDAY","LUTZ","LAND O"]):
+                print(f"    MATCH-ish city: [{c}] x{n}")
+
+        for line in lines:
             rec = parse_corporate_line(line)
             if rec: all_records.append(rec)
-    else:
-        print("No dated data files found. Folder contents (if any) listed above.")
-        # extra discovery: show what's in the cor folder regardless
-        if not cor_path:
-            print("Could not find doc/cor. Listing landing directory:")
-            for e in list_dir("."): print("   ", e)
 
     sftp.close(); tr.close()
     print(f"Matched {len(all_records)} Pasco-area filings.")
