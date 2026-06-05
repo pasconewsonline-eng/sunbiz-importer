@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Sunbiz Daily New-Business Importer for Pasco County News"""
-import os, sys, io, json, re, requests, paramiko
+"""
+Sunbiz Daily New-Business Importer for Pasco County News
+Writes matched Pasco filings to data/latest.json in the repo.
+WordPress then PULLS that file (avoids SiteGround's inbound firewall).
+"""
+import os, sys, io, json, re, datetime, paramiko
 
-WP_ENDPOINT = os.environ.get("WP_ENDPOINT", "").strip()
-WP_KEY      = os.environ.get("WP_KEY", "").strip()
 SFTP_HOST, SFTP_USER, SFTP_PASS = "sftp.floridados.gov", "Public", "PubAccess1845!"
 
 PASCO_CITIES = {
@@ -29,7 +31,7 @@ PASCO_NORM = { norm_city(c) for c in PASCO_CITIES }
 
 def parse_date(rd):
     if len(rd) == 8 and rd.isdigit():
-        return f"{rd[4:8]}-{rd[0:2]}-{rd[2:4]}"   # MMDDYYYY -> YYYY-MM-DD
+        return f"{rd[4:8]}-{rd[0:2]}-{rd[2:4]}"
     return ""
 
 def parse_corporate_line(line):
@@ -48,8 +50,6 @@ def parse_corporate_line(line):
     }
 
 def main():
-    if not WP_ENDPOINT or not WP_KEY:
-        print("ERROR: secrets missing."); sys.exit(1)
     print("Connecting to Sunbiz SFTP...")
     tr = paramiko.Transport((SFTP_HOST,22)); tr.connect(username=SFTP_USER,password=SFTP_PASS)
     sftp = paramiko.SFTPClient.from_transport(tr)
@@ -71,24 +71,22 @@ def main():
             rec = parse_corporate_line(line)
             if rec: all_records.append(rec)
     sftp.close(); tr.close()
+
     print(f"Matched {len(all_records)} Pasco-area filings.")
     for r in all_records[:10]:
         print(f"   {r['name']} — {r['city']} — {r['entity_type']} — {r['filing_date']}")
-    if not all_records:
-        print("Nothing to send today."); return
-    print("Posting to WordPress...")
-    headers = {
-        "x-pcn-key": WP_KEY,
-        "Content-Type": "application/json",
-        "User-Agent": "PascoCountyNews-SunbizImporter/1.0",
-        "Accept": "application/json",
+
+    # Write results to data/latest.json (WordPress will pull this)
+    os.makedirs("data", exist_ok=True)
+    payload = {
+        "generated": datetime.datetime.utcnow().isoformat() + "Z",
+        "source_file": dated[-1] if dated else "",
+        "count": len(all_records),
+        "filings": all_records,
     }
-    resp = requests.post(WP_ENDPOINT, headers=headers,
-                         data=json.dumps(all_records), timeout=60)
-    print("WordPress response:", resp.status_code, resp.text[:200])
-    if "sgcaptcha" in resp.text or resp.status_code in (401,403):
-        print("\n*** Still blocked. Tell SiteGround the new user-agent is "
-              "'PascoCountyNews-SunbizImporter/1.0' and ask them to allow it. ***")
+    with open("data/latest.json", "w") as f:
+        json.dump(payload, f, indent=2)
+    print("Wrote data/latest.json")
 
 if __name__ == "__main__":
     main()
