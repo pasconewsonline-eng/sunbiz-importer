@@ -28,10 +28,8 @@ def norm_city(c):
 PASCO_NORM = { norm_city(c) for c in PASCO_CITIES }
 
 def parse_date(rd):
-    # Sunbiz file date is MMDDYYYY (e.g. 05272026 -> 2026-05-27)
     if len(rd) == 8 and rd.isdigit():
-        mm, dd, yyyy = rd[0:2], rd[2:4], rd[4:8]
-        return f"{yyyy}-{mm}-{dd}"
+        return f"{rd[4:8]}-{rd[0:2]}-{rd[2:4]}"   # MMDDYYYY -> YYYY-MM-DD
     return ""
 
 def parse_corporate_line(line):
@@ -82,16 +80,15 @@ def main():
     headers = {
         "x-pcn-key": WP_KEY,
         "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (compatible; PascoCountyNewsBot/1.0)",
+        "User-Agent": "PascoCountyNews-SunbizImporter/1.0",
         "Accept": "application/json",
     }
     resp = requests.post(WP_ENDPOINT, headers=headers,
                          data=json.dumps(all_records), timeout=60)
     print("WordPress response:", resp.status_code, resp.text[:200])
     if "sgcaptcha" in resp.text or resp.status_code in (401,403):
-        print("\n*** SiteGround bot-protection blocked the request. ***")
-        print("Fix: in SiteGround Site Tools -> Security -> Bot Defense / WAF,")
-        print("allowlist the path /wp-json/pcn-nb/v1/import (or disable challenge for it).")
+        print("\n*** Still blocked. Tell SiteGround the new user-agent is "
+              "'PascoCountyNews-SunbizImporter/1.0' and ask them to allow it. ***")
 
 if __name__ == "__main__":
     main()
